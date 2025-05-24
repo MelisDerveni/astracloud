@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 
-function Signup() {
+function Signup({ onSignupSuccess }) {
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -72,6 +72,11 @@ function Signup() {
         // Store token and user data
         localStorage.setItem('authToken', data.token);
         localStorage.setItem('userData', JSON.stringify(data.user));
+        
+        // Call the parent's onSignupSuccess if it exists
+        if (onSignupSuccess) {
+          onSignupSuccess(data.token, data.user);
+        }
         
         setTimeout(() => {
           navigate('/dashboard');

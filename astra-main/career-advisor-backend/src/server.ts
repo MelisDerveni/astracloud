@@ -30,17 +30,44 @@ mongoose.connect(mongoURI)
     process.exit(1); // Exit the process on connection failure
   });
 
+// --- Protected Route Middleware ---
+interface AuthRequest extends Request {
+  user?: { id: string };
+}
+
+const protect = (req: AuthRequest, res: Response, next: NextFunction) => {
+  let token;
+  // Check if token is in Authorization header
+  if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+    token = req.headers.authorization.split(' ')[1]; // Get token from "Bearer TOKEN"
+  }
+
+  if (!token) {
+    return res.status(401).json({ message: 'No token, authorization denied' });
+  }
+
+  try {
+    // Verify token
+    const decoded = jwt.verify(token, JWT_SECRET) as { id: string };
+    req.user = decoded; // Attach user ID to request object
+    next(); // Proceed to the next middleware/route handler
+  } catch (error) {
+    console.error('Token verification failed:', error);
+    res.status(401).json({ message: 'Token is not valid' });
+  }
+};
+
 // --- Routes ---
 
 // @route   POST /api/auth/signup
 // @desc    Register a new user
 // @access  Public
 app.post('/api/auth/signup', async (req: Request, res: Response) => {
-  const { email, password } = req.body;
+  const { email, password, firstName, lastName, age, school, grade } = req.body;
 
   // Basic validation
-  if (!email || !password) {
-    return res.status(400).json({ message: 'Please enter all fields' });
+  if (!email || !password || !firstName || !lastName) {
+    return res.status(400).json({ message: 'Please enter all required fields' });
   }
 
   try {
@@ -50,8 +77,16 @@ app.post('/api/auth/signup', async (req: Request, res: Response) => {
       return res.status(400).json({ message: 'User with this email already exists' });
     }
 
-    // Create new user instance
-    user = new User({ email, password });
+    // Create new user instance with all fields
+    user = new User({
+      email,
+      password,
+      firstName,
+      lastName,
+      age: age ? parseInt(age) : undefined,
+      school,
+      grade
+    });
 
     // Save user to database (password hashing happens in pre-save hook)
     await user.save();
@@ -59,12 +94,19 @@ app.post('/api/auth/signup', async (req: Request, res: Response) => {
     // Generate JWT token
     const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: '1h' });
 
-    // Respond with token and user ID
+    // Respond with token and user data
     res.status(201).json({
       message: 'User registered successfully',
       token,
-      userId: user._id,
-      email: user.email // Include email for confirmation
+      user: {
+        id: user._id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        age: user.age,
+        school: user.school,
+        grade: user.grade
+      }
     });
 
   } catch (error: any) {
@@ -104,12 +146,24 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
     // Generate JWT token
     const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: '1h' });
 
-    // Respond with token and user ID
+    // Respond with token and user data
     res.status(200).json({
       message: 'Logged in successfully',
       token,
-      userId: user._id,
-      email: user.email
+      user: {
+        id: user._id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        age: user.age,
+        school: user.school,
+        grade: user.grade,
+        interests: user.interests,
+        achievements: user.achievements,
+        academicProgress: user.academicProgress,
+        universityApplications: user.universityApplications,
+        applicationProgress: user.applicationProgress
+      }
     });
 
   } catch (error: any) {
@@ -118,33 +172,35 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
   }
 });
 
-// --- Protected Route Example (for demonstration) ---
-// This middleware protects routes that require authentication
-interface AuthRequest extends Request {
-  user?: { id: string };
-}
-
-const protect = (req: AuthRequest, res: Response, next: NextFunction) => {
-  let token;
-  // Check if token is in Authorization header
-  if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
-    token = req.headers.authorization.split(' ')[1]; // Get token from "Bearer TOKEN"
-  }
-
-  if (!token) {
-    return res.status(401).json({ message: 'No token, authorization denied' });
-  }
-
+// @route   GET /api/user/profile
+// @desc    Get user profile
+// @access  Private
+app.get('/api/user/profile', protect, async (req: AuthRequest, res: Response) => {
   try {
-    // Verify token
-    const decoded = jwt.verify(token, JWT_SECRET) as { id: string };
-    req.user = decoded; // Attach user ID to request object
-    next(); // Proceed to the next middleware/route handler
-  } catch (error) {
-    console.error('Token verification failed:', error);
-    res.status(401).json({ message: 'Token is not valid' });
+    const user = await User.findById(req.user?.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    res.status(200).json({
+      id: user._id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      age: user.age,
+      school: user.school,
+      grade: user.grade,
+      interests: user.interests,
+      achievements: user.achievements,
+      academicProgress: user.academicProgress,
+      universityApplications: user.universityApplications,
+      applicationProgress: user.applicationProgress
+    });
+  } catch (error: any) {
+    console.error('Profile fetch error:', error);
+    res.status(500).json({ message: 'Server error while fetching profile', error: error.message });
   }
-};
+});
 
 // Example protected route
 app.get('/api/protected', protect, (req: AuthRequest, res: Response) => {
@@ -154,6 +210,19 @@ app.get('/api/protected', protect, (req: AuthRequest, res: Response) => {
   });
 });
 
+// @route   POST /api/auth/logout
+// @desc    Logout user and invalidate token
+// @access  Private
+app.post('/api/auth/logout', protect, async (req: AuthRequest, res: Response) => {
+  try {
+    // In a real application, you might want to add the token to a blacklist
+    // or implement token revocation. For now, we'll just send a success response
+    res.status(200).json({ message: 'Logged out successfully' });
+  } catch (error: any) {
+    console.error('Logout error:', error);
+    res.status(500).json({ message: 'Server error during logout', error: error.message });
+  }
+});
 
 // Start the server
 app.listen(PORT, () => {

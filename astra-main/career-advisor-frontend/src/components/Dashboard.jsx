@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-function Dashboard() {
+function Dashboard({ onLogout }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -29,6 +29,13 @@ function Dashboard() {
       });
 
       if (!response.ok) {
+        if (response.status === 401) {
+          // Token is invalid or expired
+          localStorage.removeItem('authToken');
+          localStorage.removeItem('userData');
+          navigate('/login');
+          return;
+        }
         throw new Error('Failed to fetch profile');
       }
 
@@ -42,10 +49,8 @@ function Dashboard() {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('userData');
-    navigate('/login');
+  const handleLogout = async () => {
+    await onLogout();
   };
 
   const handleSendMessage = async () => {

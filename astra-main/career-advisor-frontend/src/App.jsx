@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Link, Navigate, useNavigate } from 'react-router-dom';
 import Login from './components/Login';
 import Signup from './components/Signup';
 import Dashboard from './components/Dashboard';
@@ -8,30 +8,44 @@ import confusedImage from './assets/confused.png'; // Import the image
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [user, setUser] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const navigate = useNavigate();
 
   // Check for existing auth on component mount
   useEffect(() => {
-    const token = localStorage.getItem('authToken');
-    const userData = localStorage.getItem('userData');
-    
-    if (token && userData) {
-      try {
-        const parsedUser = JSON.parse(userData);
-        setUser(parsedUser);
-        setIsLoggedIn(true);
-      } catch (err) {
-        // Clear invalid data
-        localStorage.removeItem('authToken');
-        localStorage.removeItem('userData');
+    const checkAuth = () => {
+      const token = localStorage.getItem('authToken');
+      const userData = localStorage.getItem('userData');
+      
+      if (token && userData) {
+        try {
+          const parsedUser = JSON.parse(userData);
+          setUser(parsedUser);
+          setIsLoggedIn(true);
+        } catch (err) {
+          // Clear invalid data
+          localStorage.removeItem('authToken');
+          localStorage.removeItem('userData');
+          setUser(null);
+          setIsLoggedIn(false);
+          navigate('/login', { replace: true });
+        }
+      } else {
+        setUser(null);
+        setIsLoggedIn(false);
       }
-    }
-  }, []);
+      setIsLoading(false);
+    };
+
+    checkAuth();
+  }, [navigate]);
 
   const handleLoginSuccess = (token, userData) => {
     localStorage.setItem('authToken', token);
     localStorage.setItem('userData', JSON.stringify(userData));
     setUser(userData);
     setIsLoggedIn(true);
+    navigate('/dashboard', { replace: true });
   };
 
   const handleSignupSuccess = (token, userData) => {
@@ -39,17 +53,39 @@ function App() {
     localStorage.setItem('userData', JSON.stringify(userData));
     setUser(userData);
     setIsLoggedIn(true);
+    navigate('/dashboard', { replace: true });
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('userData');
-    // Clear old token and userEmail if they exist
-    localStorage.removeItem('token');
-    localStorage.removeItem('userEmail');
-    setIsLoggedIn(false);
-    setUser(null);
+  const handleLogout = async () => {
+    try {
+      const token = localStorage.getItem('authToken');
+      if (token) {
+        await fetch('http://localhost:5000/api/auth/logout', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('userData');
+      setUser(null);
+      setIsLoggedIn(false);
+      navigate('/login', { replace: true });
+    }
   };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+      </div>
+    );
+  }
 
   // Landing Page Component
   const LandingPage = () => (
@@ -166,40 +202,55 @@ function App() {
     return children;
   };
 
+  // Auth Route Component (for login/signup)
+  const AuthRoute = ({ children }) => {
+    if (isLoggedIn) {
+      return <Navigate to="/dashboard" replace />;
+    }
+    return children;
+  };
+
+  return (
+    <Routes>
+      <Route path="/" element={<LandingPage />} />
+      <Route 
+        path="/login" 
+        element={
+          <AuthRoute>
+            <Login onLoginSuccess={handleLoginSuccess} />
+          </AuthRoute>
+        } 
+      />
+      <Route 
+        path="/signup" 
+        element={
+          <AuthRoute>
+            <Signup onSignupSuccess={handleSignupSuccess} />
+          </AuthRoute>
+        } 
+      />
+      <Route 
+        path="/dashboard" 
+        element={
+          <ProtectedRoute>
+            <Dashboard onLogout={handleLogout} />
+          </ProtectedRoute>
+        } 
+      />
+      <Route path="/about" element={<div className="pt-20 container mx-auto">About Us Page</div>} />
+      <Route path="/students" element={<div className="pt-20 container mx-auto">Our Students Page</div>} />
+      <Route path="/contact" element={<div className="pt-20 container mx-auto">Contact Us Page</div>} />
+    </Routes>
+  );
+}
+
+// Wrap the App component with Router
+function AppWithRouter() {
   return (
     <Router>
-      <Routes>
-        <Route path="/" element={<LandingPage />} />
-        <Route 
-          path="/login" 
-          element={
-            isLoggedIn ? 
-              <Navigate to="/dashboard" replace /> : 
-              <Login onLoginSuccess={handleLoginSuccess} />
-          } 
-        />
-        <Route 
-          path="/signup" 
-          element={
-            isLoggedIn ? 
-              <Navigate to="/dashboard" replace /> : 
-              <Signup onSignupSuccess={handleSignupSuccess} />
-          } 
-        />
-        <Route 
-          path="/dashboard" 
-          element={
-            <ProtectedRoute>
-              <Dashboard />
-            </ProtectedRoute>
-          } 
-        />
-        <Route path="/about" element={<div className="pt-20 container mx-auto">About Us Page</div>} />
-        <Route path="/students" element={<div className="pt-20 container mx-auto">Our Students Page</div>} />
-        <Route path="/contact" element={<div className="pt-20 container mx-auto">Contact Us Page</div>} />
-      </Routes>
+      <App />
     </Router>
   );
 }
 
-export default App;
+export default AppWithRouter;
