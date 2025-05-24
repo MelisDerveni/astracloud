@@ -6,7 +6,10 @@ function Dashboard({ onLogout }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [message, setMessage] = useState('');
+  const [messageType, setMessageType] = useState('success');
   const [chatMessage, setChatMessage] = useState('');
+  const [chatHistory, setChatHistory] = useState([]);
+  const [isAiLoading, setIsAiLoading] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -56,27 +59,52 @@ function Dashboard({ onLogout }) {
   const handleSendMessage = async () => {
     if (!chatMessage.trim()) return;
 
+    const userMessage = chatMessage.trim();
+    setChatMessage('');
+    setChatHistory(prev => [...prev, { role: 'user', content: userMessage }]);
+    setIsAiLoading(true);
+
     try {
       const token = localStorage.getItem('authToken');
-      const response = await fetch('http://localhost:5000/api/user/chat', {
+      const response = await fetch('http://localhost:5000/api/ai/chat', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ 
-          message: chatMessage, 
-          sender: 'user' 
-        })
+        body: JSON.stringify({ message: userMessage })
       });
 
+      const data = await response.json();
+
       if (response.ok) {
-        setChatMessage('');
-        setMessage('Message sent!');
-        setTimeout(() => setMessage(''), 3000);
+        setChatHistory(prev => [...prev, { role: 'assistant', content: data.response }]);
+      } else {
+        let errorMessage = 'Failed to get response';
+        if (data.error?.includes('Unable to connect to Ollama')) {
+          errorMessage = 'The AI service is not running. Please make sure Ollama is installed and running locally.';
+        } else if (data.error?.includes('model not found')) {
+          errorMessage = 'The AI model is not available. Please make sure the correct model is installed in Ollama.';
+        } else if (data.error?.includes('Invalid message format')) {
+          errorMessage = 'Please enter a valid message.';
+        }
+        setMessage(errorMessage);
+        setMessageType('error');
+        setChatHistory(prev => [...prev, { 
+          role: 'assistant', 
+          content: 'I apologize, but I am currently unable to respond. Please make sure Ollama is running and try again.' 
+        }]);
       }
     } catch (err) {
       console.error('Error sending message:', err);
+      setMessage('Failed to connect to AI service. Please make sure Ollama is running locally.');
+      setMessageType('error');
+      setChatHistory(prev => [...prev, { 
+        role: 'assistant', 
+        content: 'I apologize, but I am currently unable to respond. Please make sure Ollama is running and try again.' 
+      }]);
+    } finally {
+      setIsAiLoading(false);
     }
   };
 
@@ -258,24 +286,57 @@ function Dashboard({ onLogout }) {
 
           {/* Chat Section */}
           <div className="bg-white p-6 rounded-xl shadow-md border border-gray-200">
-            <h3 className="text-xl font-semibold text-gray-800 mb-4">Chat with Assistant</h3>
-            <div className="border rounded-lg p-4 bg-gray-50">
-              <input 
-                type="text" 
-                placeholder="Type a message..."
-                className="w-full p-2 bg-transparent border-0 focus:outline-none placeholder-gray-500"
-                value={chatMessage}
-                onChange={(e) => setChatMessage(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-              />
-              <button 
-                onClick={handleSendMessage}
-                className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
-              >
-                Send Message
-              </button>
+            <h3 className="text-xl font-semibold text-gray-800 mb-4">Chat with AI Advisor</h3>
+            <div className="border rounded-lg p-4 bg-gray-50 h-96 flex flex-col">
+              <div className="flex-1 overflow-y-auto mb-4 space-y-4">
+                {chatHistory.map((msg, index) => (
+                  <div
+                    key={index}
+                    className={`p-3 rounded-lg ${
+                      msg.role === 'user'
+                        ? 'bg-blue-100 ml-auto max-w-[80%]'
+                        : 'bg-gray-100 mr-auto max-w-[80%]'
+                    }`}
+                  >
+                    <p className="text-sm text-gray-800">{msg.content}</p>
+                  </div>
+                ))}
+                {isAiLoading && (
+                  <div className="bg-gray-100 p-3 rounded-lg mr-auto max-w-[80%]">
+                    <div className="flex space-x-2">
+                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-100"></div>
+                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-200"></div>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="flex space-x-2">
+                <input
+                  type="text"
+                  placeholder="Ask about your career or education..."
+                  className="flex-1 p-2 bg-transparent border rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  value={chatMessage}
+                  onChange={(e) => setChatMessage(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                  disabled={isAiLoading}
+                />
+                <button
+                  onClick={handleSendMessage}
+                  disabled={isAiLoading}
+                  className={`px-4 py-2 rounded-md ${
+                    isAiLoading
+                      ? 'bg-gray-400 cursor-not-allowed'
+                      : 'bg-indigo-600 hover:bg-indigo-700'
+                  } text-white`}
+                >
+                  {isAiLoading ? 'Sending...' : 'Send'}
+                </button>
+              </div>
               {message && (
-                <p className="mt-2 text-sm text-green-600">{message}</p>
+                <p className={`mt-2 text-sm ${messageType === 'error' ? 'text-red-600' : 'text-green-600'}`}>
+                  {message}
+                </p>
               )}
             </div>
           </div>

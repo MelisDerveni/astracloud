@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
 import User, { IUser } from './models/User'; // Import the User model
+import { getAIResponse } from './services/aiService';
 
 // Load environment variables from .env file
 dotenv.config();
@@ -221,6 +222,63 @@ app.post('/api/auth/logout', protect, async (req: AuthRequest, res: Response) =>
   } catch (error: any) {
     console.error('Logout error:', error);
     res.status(500).json({ message: 'Server error during logout', error: error.message });
+  }
+});
+
+// @route   POST /api/ai/chat
+// @desc    Get AI response for career and education questions
+// @access  Private
+app.post('/api/ai/chat', protect, async (req: AuthRequest, res: Response) => {
+  try {
+    const { message } = req.body;
+
+    if (!message) {
+      console.log('Missing message in request body');
+      return res.status(400).json({ 
+        message: 'Message is required',
+        error: 'MISSING_MESSAGE'
+      });
+    }
+
+    if (typeof message !== 'string') {
+      console.log('Invalid message format:', message);
+      return res.status(400).json({ 
+        message: 'Message must be a string',
+        error: 'INVALID_MESSAGE_FORMAT'
+      });
+    }
+
+    console.log('Processing chat request:', { 
+      userId: req.user?.id,
+      messageLength: message.length 
+    });
+
+    const response = await getAIResponse(message);
+    
+    console.log('Successfully generated AI response');
+    res.status(200).json({ response });
+  } catch (error: any) {
+    console.error('AI Chat error:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+      userId: req.user?.id
+    });
+    
+    // Determine appropriate status code
+    let statusCode = 500;
+    if (error.message.includes('Invalid API key')) {
+      statusCode = 503; // Service Unavailable
+    } else if (error.message.includes('Rate limit')) {
+      statusCode = 429; // Too Many Requests
+    } else if (error.message.includes('Unable to connect')) {
+      statusCode = 503; // Service Unavailable
+    }
+    
+    res.status(statusCode).json({ 
+      message: error.message || 'Failed to get AI response',
+      error: error.message || 'UNKNOWN_ERROR'
+    });
   }
 });
 
